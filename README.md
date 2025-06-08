@@ -1,1 +1,128 @@
 # Pantha
+import os.path
+import matplotlib.pyplot as plt
+from astropy.io import fits
+import drms
+import numpy as np
+from datetime import datetime
+from scipy.ndimage import label  # <-- needed for step 2
+
+# Set up parameters
+series = 'hmi.sharp_cea_720s'
+sharpnum = 3563
+target_time = datetime(2014, 1, 7, 0, 0, 0)
+segment = 'magnetogram'
+kwlist = ['T_REC', 'LON_FWT', 'OBS_VR', 'CROTA2',
+          'CRPIX1', 'CRPIX2', 'CDELT1', 'CDELT2', 'CRVAL1', 'CRVAL2']
+
+c = drms.Client(email='pantha9762@gmail.com')
+k = c.query(f'{series}[{sharpnum}]', key=kwlist, rec_index=True)
+
+# Find the record closest to our target time
+k['time'] = drms.to_datetime(k.T_REC)
+time_diff = (k['time'] - target_time).abs()
+rec = time_diff.idxmin()
+selected_rec = k.loc[rec]
+selected_time = selected_rec['time']
+
+print(f"Selected record: {rec} @ {selected_rec.LON_FWT} deg")
+print(f"Closest available timestamp: {selected_time}")
+
+# Create filename and download if needed
+t_str = selected_time.strftime('%Y%m%d_%H%M%S_TAI')
+fname = f'{series}.{sharpnum}.{t_str}.{segment}.fits'
+
+if not os.path.exists(fname):  #for download if not available in device
+    exp_query = f'{rec}{{{segment}}}'
+    r = c.export(exp_query, method='url', protocol='fits')
+    dl = r.download('.')
+    print(f"Downloaded: {fname}")
+
+# Read FITS data
+def read_fits_data(fname):
+    hdulist = fits.open(fname)
+    hdulist.verify('silentfix+warn')
+    return hdulist[1].data
+
+mag = read_fits_data(fname)
+
+# -----------------------------------------------------------------------------------------############
+# 1. Set a Threshold to remove weak field noise
+B_thresh = 50  # in Gauss and it is the strength of the filter. for 50G no patch between 0 to 50 is visible 
+mag_cleaned = np.copy(mag)
+mag_cleaned[np.abs(mag_cleaned) < B_thresh] = 0
+
+# 2. Morphological Filtering to remove small patches
+pos_mask = mag_cleaned > 0
+neg_mask = mag_cleaned < 0
+
+pos_labels, num_pos = label(pos_mask)
+neg_labels, num_neg = label(neg_mask)
+
+area_thresh = 20000  # pixel area threshold
+
+for label_num in range(1, num_pos + 1):
+    if np.sum(pos_labels == label_num) < area_thresh:
+        mag_cleaned[pos_labels == label_num] = 0
+
+for label_num in range(1, num_neg + 1):
+    if np.sum(neg_labels == label_num) < area_thresh:
+        mag_cleaned[neg_labels == label_num] = 0
+# -----------------------------------------------------------------------------------------#############
+
+# Calculate coordinates
+ny, nx = mag.shape
+xmin = (1 - selected_rec.CRPIX1)*selected_rec.CDELT1 + selected_rec.CRVAL1
+xmax = (nx - selected_rec.CRPIX1)*selected_rec.CDELT1 + selected_rec.CRVAL1
+ymin = (1 - selected_rec.CRPIX2)*selected_rec.CDELT2 + selected_rec.CRVAL2
+ymax = (ny - selected_rec.CRPIX2)*selected_rec.CDELT2 + selected_rec.CRVAL2
+
+x_data = np.linspace(xmin, xmax, nx)
+y_data = np.linspace(ymin, ymax, ny)
+
+# -----------------------------------------------------------------------------------------@@@@@@@@@@@
+# Compute Centroids
+
+X, Y = np.meshgrid(x_data, y_data)
+
+# Positive polarity centroid
+pos_mask = mag_cleaned > 0
+pos_weights = mag_cleaned * pos_mask
+total_pos_flux = np.sum(pos_weights)
+x_centroid_pos = np.sum(X * pos_weights) / total_pos_flux
+y_centroid_pos = np.sum(Y * pos_weights) / total_pos_flux
+
+# Negative polarity centroid
+neg_mask = mag_cleaned < 0
+neg_weights = np.abs(mag_cleaned * neg_mask)
+total_neg_flux = np.sum(neg_weights)
+x_centroid_neg = np.sum(X * neg_weights) / total_neg_flux
+y_centroid_neg = np.sum(Y * neg_weights) / total_neg_flux
+
+print("Positive polarity centroid: ({:.2f}, {:.2f}) arcsec".format(x_centroid_pos, y_centroid_pos))
+print("Negative polarity centroid: ({:.2f}, {:.2f}) arcsec".format(x_centroid_neg, y_centroid_neg))
+
+# -----------------------------------------------------------------------------------------@@@@@@@@@@@
+#  Plot the Centroids on the Magnetogram
+
+plt.figure(figsize=(8, 6))
+plt.pcolormesh(x_data, y_data, mag_cleaned / 1e3, cmap='gray', vmin=-1, vmax=1)
+plt.colorbar(label=r'$B_{\mathrm{los}}$ [kG]', shrink=0.7)
+plt.axis('image')
+plt.xlabel('Solar X [arcsec]')
+plt.ylabel('Solar Y [arcsec]')
+
+# Plot centroids
+plt.plot(x_centroid_pos, y_centroid_pos, 'ro', label='Positive Centroid')
+plt.plot(x_centroid_neg, y_centroid_neg, 'bo', label='Negative Centroid')
+plt.legend(loc='lower left')
+
+# -----------------------------------------------------------------------------------------
+# Get metadata for title
+a1 = fits.open(fname)
+meta = a1[1].header
+title = f"NOAA AR {meta.get('NOAA_AR', 'N/A')}, Time: {selected_time}"
+plt.title(title)
+
+plt.tight_layout()
+plt.show()
