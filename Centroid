@@ -1,4 +1,3 @@
-# Pantha
 import os.path
 import matplotlib.pyplot as plt
 from astropy.io import fits
