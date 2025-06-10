@@ -8,9 +8,13 @@ from datetime import datetime
 from scipy.ndimage import label  
 
 # Set up parameters
+B_thresh = 50  # in Gauss and it is the strength of the filter. for 50G no patch between 0 to 50 is visible 
+area_thresh = 20000  # pixel area threshold for cleaning noises
+year,month,day,hour,min,sec=2014, 1, 15, 15, 0, 0
+
 series = 'hmi.sharp_cea_720s'
 sharpnum = 3563
-target_time = datetime(2014, 1, 7, 0, 0, 0)
+target_time = datetime(year,month,day,hour,min,sec)
 segment = 'magnetogram'
 kwlist = ['T_REC','LON_FWT','OBS_VR','CROTA2','CRPIX1','CRPIX2','CDELT1','CDELT2','CRVAL1','CRVAL2']
 
@@ -47,7 +51,6 @@ mag = read_fits_data(fname)
 
 # -----------------------------------------------------------------------------------------############
 # 1. Set a Threshold to remove weak field noise
-B_thresh = 50  # in Gauss and it is the strength of the filter. for 50G no patch between 0 to 50 is visible 
 mag_cleaned = np.copy(mag)
 mag_cleaned[np.abs(mag_cleaned) < B_thresh] = 0
 
@@ -58,7 +61,6 @@ neg_mask = mag_cleaned < 0
 pos_labels, num_pos = label(pos_mask)
 neg_labels, num_neg = label(neg_mask)
 
-area_thresh = 20000  # pixel area threshold
 
 for label_num in range(1, num_pos + 1):
     if np.sum(pos_labels == label_num) < area_thresh:
@@ -139,8 +141,8 @@ mid_y = (y_centroid_pos + y_centroid_neg) / 2
 # title
 a1 = fits.open(fname)
 meta = a1[1].header
-title = f"NOAA AR {meta.get('NOAA_AR', 'N/A')}, Time: {selected_time}"
+title = f"NOAA AR {meta.get('NOAA_AR', 'N/A')}, Time: {selected_time} \n Tilt angle={tilt_angle_deg}°"
 plt.title(title)
-plt.legend(loc='lower left')
+plt.legend(loc='lower left',fontsize=5)
 plt.tight_layout()
 plt.show()
