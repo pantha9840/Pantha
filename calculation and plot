@@ -10,8 +10,9 @@ from scipy.ndimage import label
 series = 'hmi.sharp_cea_720s'
 sharpnum = 3563
 target_time = datetime(2014, 1, 7, 0, 0, 0)
-segment = 'magnetogram'
-kwlist = ['T_REC','LON_FWT','OBS_VR','CROTA2','CRPIX1','CRPIX2','CDELT1','CDELT2','CRVAL1','CRVAL2']
+segment = 'magnetbogram'
+kwlist = ['T_REC', 'LON_FWT', 'OBS_VR', 'CROTA2',
+          'CRPIX1', 'CRPIX2', 'CDELT1', 'CDELT2', 'CRVAL1', 'CRVAL2']
 
 c = drms.Client(email='pantha9762@gmail.com')
 k = c.query(f'{series}[{sharpnum}]', key=kwlist, rec_index=True)
@@ -57,7 +58,7 @@ neg_mask = mag_cleaned < 0
 pos_labels, num_pos = label(pos_mask)
 neg_labels, num_neg = label(neg_mask)
 
-area_thresh = 20  # pixel area threshold
+area_thresh = 20000  # pixel area threshold
 
 for label_num in range(1, num_pos + 1):
     if np.sum(pos_labels == label_num) < area_thresh:
@@ -87,7 +88,7 @@ X, Y = np.meshgrid(x_data, y_data)
 pos_mask = mag_cleaned > 0
 pos_weights = mag_cleaned * pos_mask
 total_pos_flux = np.sum(pos_weights)
-x_centroid_pos = np.sum(X * pos_weights) / total_pos_flux  #∑(xi mi)/ ∑(mi)
+x_centroid_pos = np.sum(X * pos_weights) / total_pos_flux
 y_centroid_pos = np.sum(Y * pos_weights) / total_pos_flux
 
 #@@ Negative polarity centroid
@@ -101,45 +102,26 @@ print("Positive polarity centroid: ({:.2f}, {:.2f}) arcsec".format(x_centroid_po
 print("Negative polarity centroid: ({:.2f}, {:.2f}) arcsec".format(x_centroid_neg, y_centroid_neg))
 
 # -----------------------------------------------------------------------------------------@@@@@@@@@@@
-# Compute Tilt Angle (in degrees)
-dx = x_centroid_pos - x_centroid_neg
-dy = y_centroid_pos - y_centroid_neg
-tilt_angle_rad = np.arctan2(dy, dx)
-tilt_angle_deg = np.degrees(tilt_angle_rad)
-print(f"Tilt angle: {tilt_angle_deg:.2f}°")
+#  Plot the Centroids on the Magnetogram
 
-
-
-# 
-# Create plot
-#plt.figure(figsize=(8, 6))
-img_mag = plt.pcolormesh(x_data, y_data, mag_cleaned/1e3, cmap='gray', vmin=-1, vmax=1)
-cb_mag = plt.colorbar(label=r'$B_{\mathrm{los}}$ [kG]', shrink=0.7)
+plt.figure(figsize=(8, 6))
+plt.pcolormesh(x_data, y_data, mag_cleaned / 1e3, cmap='gray', vmin=-1, vmax=1)
+plt.colorbar(label=r'$B_{\mathrm{los}}$ [kG]', shrink=0.7)
 plt.axis('image')
 plt.xlabel('Solar X [arcsec]')
 plt.ylabel('Solar Y [arcsec]')
 
-# Centroids
+# Plot centroids
 plt.plot(x_centroid_pos, y_centroid_pos, 'ro', label='Positive Centroid')
 plt.plot(x_centroid_neg, y_centroid_neg, 'bo', label='Negative Centroid')
-
-#  Reference Line
-plt.plot([x_centroid_neg, x_centroid_pos],
-         [y_centroid_neg, y_centroid_pos], 'y-', label='BMR Axis')
-plt.plot([x_centroid_neg, x_centroid_pos],
-         [y_centroid_neg, y_centroid_neg], 'c--', label='Solar Equator')
-
-#  tilt angle
-mid_x = (x_centroid_pos + x_centroid_neg) / 2
-mid_y = (y_centroid_pos + y_centroid_neg) / 2
-#plt.text(mid_x, mid_y + 20, f'{tilt_angle_deg:.1f}°', color='red', fontsize=10)
+plt.legend(loc='lower left')
 
 # -----------------------------------------------------------------------------------------
-# title
+# Get metadata for title
 a1 = fits.open(fname)
 meta = a1[1].header
-#title = f"NOAA AR {meta.get('NOAA_AR', 'N/A')}, Time: {selected_time}"
-plt.title(f'Timestamp: {selected_time}\nTilt angle= {tilt_angle_deg:.2f}°')
-plt.legend(loc='lower left')
+title = f"NOAA AR {meta.get('NOAA_AR', 'N/A')}, Time: {selected_time}"
+plt.title(title)
+
 plt.tight_layout()
 plt.show()
